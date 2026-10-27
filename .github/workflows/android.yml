@@ -25,6 +25,21 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: Generate debug keystore
+        run: |
+          if [ ! -f "debug.keystore" ]; then
+            echo "Creating debug.keystore..."
+            keytool -genkey -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
       - name: Accept Android SDK licenses
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
@@ -42,28 +57,6 @@ jobs:
             gradle wrapper --gradle-version 9.3.1
           fi
           chmod +x gradlew
-
-      - name: Set up Environment configuration (.env)
-        run: |
-          if [ ! -f ".env" ]; then
-            echo "Creating .env from .env.example..."
-            cp .env.example .env
-          fi
-
-      - name: Generate debug keystore
-        run: |
-          if [ ! -f "debug.keystore" ]; then
-            echo "Creating debug.keystore required by debugConfig..."
-            keytool -genkey -v \
-              -keystore debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
 
       - name: Run unit & Robolectric tests
         run: ./gradlew testDebugUnitTest --stacktrace
