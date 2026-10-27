@@ -1,18 +1,19 @@
-name: Android Build & Test CI
+name: Android Build & Release CI
 
 on:
   push:
     branches: [ "master", "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "master", "main" ]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
-    name: Build Android App & Run Tests
+    name: Build, Test & Release
     runs-on: ubuntu-latest
 
     steps:
@@ -40,6 +41,29 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
+      - name: Set up release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'upload' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Decoding release keystore from secrets..."
+            echo "$KEYSTORE_BASE64" | base64 --decode > my-upload-key.jks
+          elif [ ! -f "my-upload-key.jks" ]; then
+            echo "Generating release upload keystore..."
+            keytool -genkey -v \
+              -keystore my-upload-key.jks \
+              -storepass "$STORE_PASSWORD" \
+              -alias "$KEY_ALIAS" \
+              -keypass "$KEY_PASSWORD" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=SilverSticker Release,O=SilverSticker,C=US"
+          fi
+
       - name: Accept Android SDK licenses
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
@@ -61,25 +85,37 @@ jobs:
       - name: Run unit & Robolectric tests
         run: ./gradlew testDebugUnitTest --stacktrace
 
+      - name: Build Full Optimized Release (APK & AAB)
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'upload' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+        run: |
+          ./gradlew assembleRelease bundleRelease --stacktrace
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      - name: Build Debug App Bundle (AAB)
-        run: ./gradlew bundleDebug --stacktrace
+      - name: Upload Release APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: silver-sticker-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
 
-      - name: Upload Debug APK
+      - name: Upload Release Bundle (AAB) Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: silver-sticker-release-bundle
+          path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+
+      - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: silver-sticker-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-
-      - name: Upload Debug Bundle (AAB)
-        uses: actions/upload-artifact@v4
-        with:
-          name: silver-sticker-debug-bundle
-          path: app/build/outputs/bundle/debug/*.aab
-          if-no-files-found: warn
 
       - name: Upload Test Reports
         if: always()
@@ -88,3 +124,18 @@ jobs:
           name: test-reports
           path: app/build/reports/tests/
           if-no-files-found: ignore
+
+      - name: Publish to GitHub Releases
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest Release Build' }}
+          draft: false
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          files: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
+            app/build/outputs/apk/debug/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
