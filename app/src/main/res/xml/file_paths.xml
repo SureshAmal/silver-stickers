@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="shared_packs" path="." />
+    <files-path name="stickers" path="stickers" />
+</paths>

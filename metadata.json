@@ -1,0 +1,5 @@
+{
+  "name": "SilverSticker",
+  "description": "WhatsApp sticker pack creator with WebP conversion, animated GIF support, emoji tagging, and ZIP import/export.",
+  "requestFramePermissions": []
+}
